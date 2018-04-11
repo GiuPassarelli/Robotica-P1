@@ -31,6 +31,9 @@ cv_image = None
 media = []
 centro = []
 area = 0.0
+mediaS = []
+centroS = []
+areaS = 0.0
 perigoso = 'semperigo'
 
 
@@ -47,16 +50,15 @@ check_delay = False # Só usar se os relógios ROS da Raspberry e do Linux deskt
 
 
 def scaneou(dado):
-    global leituras
     global perigoso
+    global angulo
 
     leituras = dado
     perigoso = 'semperigo'
-    print("Faixa valida: ", leituras.range_min , " - ", leituras.range_max )
-    print("Leituras:")
     for i in range(len(np.array(leituras.ranges).round(decimals=2))):
         if np.array(leituras.ranges).round(decimals=2)[i]!=0 and np.array(leituras.ranges).round(decimals=2)[i]<0.2:
             perigoso = 'perigo'
+            angulo = i
             
 
 def roda_todo_frame(imagem):
@@ -100,32 +102,53 @@ class Perigo(smach.State):
     def execute(self, userdata):
         global velocidade_saida
         global perigoso
+        global leituras
+
+        #print('leitura1',leituras)
 
         if perigoso == 'semperigo':
             return 'semperigo'
-            print(leituras)
-        for i in range(len(np.array(leituras.ranges).round(decimals=2))):
-            if np.array(leituras.ranges).round(decimals=2)[i]!=0 and np.array(leituras.ranges).round(decimals=2)[i]<0.2:
-                perigoso = 'perigo'
-                if i<=45:
-                    velocidade = Twist(Vector3(-0.1, 0, 0), Vector3(0, 0, -0.4))
-                elif i>=315:
-                    velocidade = Twist(Vector3(-0.1, 0, 0), Vector3(0, 0, 0.4))
-                elif i<180:
-                    velocidade = Twist(Vector3(0.1, 0, 0), Vector3(0, 0, -0.4))
-                elif i>=180:
-                    velocidade = Twist(Vector3(0.1, 0, 0), Vector3(0, 0, 0.4))
-                velocidade_saida.publish(velocidade) 
-                return 'perigo' 
+        else:
+            if angulo<=45:
+                velocidade = Twist(Vector3(-0.1, 0, 0), Vector3(0, 0, -0.4))
+            if angulo>=315:
+                velocidade = Twist(Vector3(-0.1, 0, 0), Vector3(0, 0, 0.4))
+            if angulo<180 and angulo>45:
+                velocidade = Twist(Vector3(0.1, 0, 0), Vector3(0, 0, -0.4))
+            if angulo>=180 and angulo<315:
+                velocidade = Twist(Vector3(0.1, 0, 0), Vector3(0, 0, 0.4))
+            velocidade_saida.publish(velocidade) 
+            return 'perigo' 
 
 
 
+class Help(smach.State):
+    def __init__(self):
+        smach.State.__init__(self, outcomes=['soldado', 'ufa','perigo'])
+
+    def execute(self, userdata):
+        global velocidade_saida
+        global now
+
+        now = rospy.get_rostime()
+
+        if perigoso == 'perigo':
+            return 'perigo'
+        else:
+            if (mediaS is None or len(mediaS)==0):
+                vel = Twist(Vector3(0, 0, 0), Vector3(0, 0, -ang_speed))
+                velocidade_saida.publish(vel)
+                return 'ufa'
+            elif (mediaS is not None or len(mediaS)!=0):
+                vel = Twist(Vector3(-0.1, 0, 0), Vector3(0, 0, 0.2))
+                velocidade_saida.publish(vel)
+                return 'soldado'
         
 
 
 class Girando(smach.State):
     def __init__(self):
-        smach.State.__init__(self, outcomes=['alinhou', 'girando','perigo'])
+        smach.State.__init__(self, outcomes=['alinhou', 'girando','perigo','socorro'])
 
     def execute(self, userdata):
         global velocidade_saida
@@ -133,17 +156,18 @@ class Girando(smach.State):
 
         if perigoso == 'perigo':
             return 'perigo'
-        else:
-            if (media is None or len(media)==0) and (mediaS is None or len(mediaS)==0):
+        elif len(mediaS) == 0:
+        
+            if (media is None or len(media)==0):
                 vel = Twist(Vector3(0, 0, 0), Vector3(0, 0, -ang_speed))
                 velocidade_saida.publish(vel)
                 return 'girando'
 
-            if  math.fabs(media[0]) > math.fabs(centro[0] + tolerancia_x) or math.fabs(mediaS[0]) > math.fabs(centro[0] + tolerancia_x):
+            if  math.fabs(media[0]) > math.fabs(centro[0] + tolerancia_x) :
                 vel = Twist(Vector3(0, 0, 0), Vector3(0, 0, -ang_speed))
                 velocidade_saida.publish(vel)
                 return 'girando'
-            if math.fabs(media[0]) < math.fabs(centro[0] - tolerancia_x) or math.fabs(mediaS[0]) < math.fabs(centro[0] - tolerancia_x):
+            if math.fabs(media[0]) < math.fabs(centro[0] - tolerancia_x):
                 vel = Twist(Vector3(0, 0, 0), Vector3(0, 0, ang_speed))
                 velocidade_saida.publish(vel)
                 return 'girando'
@@ -151,11 +175,15 @@ class Girando(smach.State):
                 vel = Twist(Vector3(0, 0, 0), Vector3(0, 0, 0))
                 velocidade_saida.publish(vel)
                 return 'alinhou'
+        elif len(mediaS) != 0:
+            return 'socorro'
+        else:
+            return 'girando'
 
 
 class Centralizado(smach.State):
     def __init__(self):
-        smach.State.__init__(self, outcomes=['alinhando', 'alinhado','perigo'])
+        smach.State.__init__(self, outcomes=['alinhando', 'alinhado','perigo','socorro'])
 
     def execute(self, userdata):
         global velocidade_saida
@@ -163,21 +191,25 @@ class Centralizado(smach.State):
         
         if perigoso == 'perigo':
             return 'perigo'
-        else:
+        elif mediaS is None:
             if media is None:
-                return 'alinhou'
+                return 'alinhado'
             if  math.fabs(media[0]) > math.fabs(centro[0] + tolerancia_x):
-                vel = Twist(Vector3(-0.5, 0, 0), Vector3(0, 0, 0))
+                vel = Twist(Vector3(0, 0, 0), Vector3(0, 0, 0))
                 velocidade_saida.publish(vel)
                 return 'alinhando'
             if math.fabs(media[0]) < math.fabs(centro[0] - tolerancia_x):
-                vel = Twist(Vector3(-0.1, 0, 0), Vector3(0, 0, 0))
+                vel = Twist(Vector3(0, 0, 0), Vector3(0, 0, 0))
                 velocidade_saida.publish(vel)
                 return 'alinhando'
             else:
-                vel = Twist(Vector3(-0.1, 0, 0), Vector3(0, 0, 0))
+                vel = Twist(Vector3(0.1, 0, 0), Vector3(0, 0, 0))
                 velocidade_saida.publish(vel)
                 return 'alinhado'
+        elif mediaS is not None:
+            return 'socorro'
+        else:
+            return 'alinhando'
 
 
 
@@ -212,10 +244,13 @@ def main():
                                 'semperigo':'GIRANDO'})
         smach.StateMachine.add('GIRANDO', Girando(),
                                 transitions={'girando': 'GIRANDO',
-                                'alinhou':'CENTRO', 'perigo':'PERIGO'})
+                                'alinhou':'CENTRO', 'perigo':'PERIGO','socorro':'SOCORRO'})
         smach.StateMachine.add('CENTRO', Centralizado(),
                                 transitions={'alinhando': 'GIRANDO',
-                                'alinhado':'CENTRO','perigo':'PERIGO'})
+                                'alinhado':'CENTRO','perigo':'PERIGO','socorro':'SOCORRO'})
+        smach.StateMachine.add('SOCORRO', Help(),
+                                transitions={'ufa': 'GIRANDO',
+                                'soldado':'SOCORRO','perigo':'PERIGO'})
 
 
     # Execute SMACH plan
