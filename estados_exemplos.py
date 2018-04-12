@@ -17,6 +17,10 @@ from cv_bridge import CvBridge, CvBridgeError
 import smach
 import smach_ros
 
+
+from sensor_msgs.msg import Imu
+import transformations
+
 import cormodule_caixa
 import seguemodule_soldadinho
 
@@ -36,6 +40,8 @@ centroS = []
 areaS = 0.0
 perigoso = 'semperigo'
 
+dado_imu = []
+media_imu = 0
 
 
 tolerancia_x = 50
@@ -89,7 +95,35 @@ def roda_todo_frame(imagem):
         print('ex', e)
     
 
+def leu_imu(dado):
 
+    global dado_imu
+    global media_imu
+
+    quat = dado.orientation
+    lista = [quat.x, quat.y, quat.z, quat.w]
+    angulos = np.degrees(transformations.euler_from_quaternion(lista))
+
+    mensagem = """
+    Tempo: {:}
+    Orientação: {:.2f}, {:.2f}, {:.2f}
+    Vel. angular: x {:.2f}, y {:.2f}, z {:.2f}\
+    Aceleração linear:
+    x: {:.2f}
+    y: {:.2f}
+    z: {:.2f}
+""".format(dado.header.stamp, angulos[0], angulos[1], angulos[2], dado.angular_velocity.x, dado.angular_velocity.y, dado.angular_velocity.z, dado.linear_acceleration.x, dado.linear_acceleration.y, dado.linear_acceleration.z)
+
+    dado_imu.append(dado.angular_velocity.x)
+    if len(dado_imu) > 6:
+        dado_imu = dado_imu[1:]
+
+    media_imu = np.mean(dado_imu)
+    print(media_imu)
+
+
+
+    #print(mensagem)
 
 
 
@@ -144,7 +178,7 @@ class Help(smach.State):
                 return 'soldado'
             
 
-       
+
         
 
 
@@ -227,6 +261,7 @@ def main():
     #recebedor = rospy.Subscriber("/cv_camera/image_raw/compressed", CompressedImage, roda_todo_frame, queue_size=1, buff_size = 2**24)
     recebedor = rospy.Subscriber("/raspicam_node/image/compressed", CompressedImage, roda_todo_frame, queue_size=10, buff_size = 2**24)
     roda_laser = rospy.Subscriber("/scan", LaserScan, scaneou)
+    recebe_scan = rospy.Subscriber("/imu", Imu, leu_imu)
 
     velocidade_saida = rospy.Publisher("/cmd_vel", Twist, queue_size = 1)
 
