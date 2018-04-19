@@ -16,11 +16,6 @@ from sensor_msgs.msg import Image, CompressedImage
 from cv_bridge import CvBridge, CvBridgeError
 import smach
 import smach_ros
-import sys
-
-
-from sensor_msgs.msg import Imu
-import transformations
 
 import cormodule_caixa
 import seguemodule_soldadinho
@@ -41,12 +36,6 @@ centroS = []
 areaS = 0.0
 perigoso = 'semperigo'
 
-dado_imu = []
-media_imu = 0
-bateu_imu = 0
-tol_imu = 0.002
-inicio_batida = 0
-delta_bateu = 1
 
 
 tolerancia_x = 50
@@ -100,125 +89,24 @@ def roda_todo_frame(imagem):
         print('ex', e)
     
 
-def leu_imu(dado):
 
-    global dado_imu
-    global media_imu
-    global bateu_imu
-    global tol_imu
-    global inicio_batida
-
-
-
-
-    quat = dado.orientation
-    lista = [quat.x, quat.y, quat.z, quat.w]
-    angulos = np.degrees(transformations.euler_from_quaternion(lista))
-
-    mensagem = """
-    Tempo: {:}
-    Orientação: {:.2f}, {:.2f}, {:.2f}
-    Vel. angular: x {:.2f}, y {:.2f}, z {:.2f}\
-    Aceleração linear:
-    x: {:.2f}
-    y: {:.2f}
-    z: {:.2f}
-""".format(dado.header.stamp, angulos[0], angulos[1], angulos[2], dado.angular_velocity.x, dado.angular_velocity.y, dado.angular_velocity.z, dado.linear_acceleration.x, dado.linear_acceleration.y, dado.linear_acceleration.z)
-    ultimo = dado.angular_velocity.x
-    dado_imu.append(ultimo)
-    if len(dado_imu) > 6:
-        dado_imu = dado_imu[1:]
-
-
-    tempo_agora = rospy.get_rostime().secs
-    print('tempo agora: {}'.format(tempo_agora))
-    print('inicio batida: {}'.format(inicio_batida))
-    print('delta:{:.2f} '.format((tempo_agora - inicio_batida)/1.0))
-
-    if (tempo_agora - inicio_batida) < delta_bateu:
-        media_imu = np.mean(dado_imu)
-        bateu_imu = 0
-    elif ultimo >= media_imu + tol_imu:
-        bateu_imu = 2
-        print('rolooooooou')
-        inicio_batida = rospy.get_rostime().secs
-    elif ultimo <= media_imu - tol_imu:
-        bateu_imu = 1
-        print('rolooooooou')
-        inicio_batida = rospy.get_rostime().secs
-    else:
-        bateu_imu = 0
-
-    media_imu = np.mean(dado_imu)
-
-    # for i in dado_imu:
-    #     if i >= media_imu + tol_imu:
-    #         bateu_imu = 2
-    #         inicio_batida = rospy.get_rostime().nsecs
-    #     elif i <= media_imu - tol_imu:
-    #         bateu_imu = 1
-    #         inicio_batida = rospy.get_rostime().nsecs
-    #     else:
-    #         bateu_imu = 0
-    #         media_imu = np.mean(dado_imu)
-
-    print(bateu_imu)
-
-
-
-    #print(mensagem)
 
 
 
 ## Classes - estados
 
-class Bateu(smach.State):
-    def __init__(self):
-        smach.State.__init__(self, outcomes=['passou','perigo','bateu'])
-
-    def execute(self, userdata):
-        global velocidade_saida
-        global perigoso
-        global bateu_imu
-        global tol_imu
-
-        rospy.sleep(0.02)
-
-        tol_imu = 0.001
-
-        if perigoso == 'perigo':
-            return 'perigo'
-        else:
-            if bateu_imu == 1:
-                velocidade = Twist(Vector3(0.1, 0, 0), Vector3(0, 0, 0))
-                velocidade_saida.publish(velocidade)
-                return 'bateu'
-            elif bateu_imu == 2:
-                velocidade = Twist(Vector3(-0.1, 0, 0), Vector3(0, 0, 0))
-                velocidade_saida.publish(velocidade)
-                return 'bateu'
-            else:
-                return 'passou'
-                
-             
-
 class Perigo(smach.State):
     def __init__(self):
-        smach.State.__init__(self, outcomes=['perigo', 'semperigo','bateu'])
+        smach.State.__init__(self, outcomes=['perigo', 'semperigo'])
 
     def execute(self, userdata):
         global velocidade_saida
         global perigoso
-        global bateu_imu
 
         rospy.sleep(0.02)
-
-        tol_imu = 0.001
 
         if perigoso == 'semperigo':
             return 'semperigo'
-        elif bateu_imu != 0:
-            return 'bateu'
         else:
             if angulo<=45:
                 velocidade = Twist(Vector3(-0.1, 0, 0), Vector3(0, 0, -0.4))
@@ -235,20 +123,16 @@ class Perigo(smach.State):
 
 class Help(smach.State):
     def __init__(self):
-        smach.State.__init__(self, outcomes=['soldado', 'ufa','perigo','bateu'])
+        smach.State.__init__(self, outcomes=['soldado', 'ufa','perigo'])
 
     def execute(self, userdata):
         global velocidade_saida
         global perigoso
-        global bateu_imu
 
         rospy.sleep(0.02)
 
-        tol_imu = 0.001
         if perigoso == 'perigo':
             return 'perigo'
-        elif bateu_imu != 0 :
-            return 'bateu'
         else:
             if len(mediaS) == 2 and mediaS[0] == -1: # Nao viu
                 vel = Twist(Vector3(0, 0, 0), Vector3(0, 0, -ang_speed))
@@ -260,23 +144,22 @@ class Help(smach.State):
                 return 'soldado'
             
 
+       
+        
+
 
 class Girando(smach.State):
     def __init__(self):
-        smach.State.__init__(self, outcomes=['alinhou', 'girando','perigo','socorro','bateu'])
+        smach.State.__init__(self, outcomes=['alinhou', 'girando','perigo','socorro'])
 
     def execute(self, userdata):
         global velocidade_saida
         global perigoso
-        global bateu_imu
 
         rospy.sleep(0.02)
 
-        tol_imu = 0.0002
         if perigoso == 'perigo':
             return 'perigo'
-        elif bateu_imu != 0:
-            return 'bateu'
         elif len(mediaS) == 2 and mediaS[0] == -1:
         
             if (media is None or len(media)==0):
@@ -302,20 +185,16 @@ class Girando(smach.State):
 
 class Centralizado(smach.State):
     def __init__(self):
-        smach.State.__init__(self, outcomes=['alinhando', 'alinhado','perigo','socorro','bateu'])
+        smach.State.__init__(self, outcomes=['alinhando', 'alinhado','perigo','socorro'])
 
     def execute(self, userdata):
         global velocidade_saida
         global perigoso
-        global bateu_imu
-        global tol_imu
 
         rospy.sleep(0.02)
-        tol_imu = 0.001
+        
         if perigoso == 'perigo':
             return 'perigo'
-        elif bateu_imu != 0:
-            return 'bateu'
         elif len(mediaS) == 2 and mediaS[0] == -1:
             if media is None:
                 return 'alinhado'
@@ -341,7 +220,6 @@ def main():
     global velocidade_saida
     global velocidade
     global perigoso
-    global bateu_imu
     global buffer
     rospy.init_node('estados_exemplos')
 
@@ -349,7 +227,6 @@ def main():
     #recebedor = rospy.Subscriber("/cv_camera/image_raw/compressed", CompressedImage, roda_todo_frame, queue_size=1, buff_size = 2**24)
     recebedor = rospy.Subscriber("/raspicam_node/image/compressed", CompressedImage, roda_todo_frame, queue_size=10, buff_size = 2**24)
     roda_laser = rospy.Subscriber("/scan", LaserScan, scaneou)
-    recebe_scan = rospy.Subscriber("/imu", Imu, leu_imu)
 
     velocidade_saida = rospy.Publisher("/cmd_vel", Twist, queue_size = 1)
 
@@ -366,19 +243,16 @@ def main():
         #                       transitions={'ainda_longe':'LONGE'})
         smach.StateMachine.add('PERIGO', Perigo(),
                                 transitions={'perigo': 'PERIGO',
-                                'semperigo':'GIRANDO','bateu':'BATEU'})
+                                'semperigo':'GIRANDO'})
         smach.StateMachine.add('GIRANDO', Girando(),
                                 transitions={'girando': 'GIRANDO',
-                                'alinhou':'CENTRO', 'perigo':'PERIGO','socorro':'SOCORRO','bateu':'BATEU'})
+                                'alinhou':'CENTRO', 'perigo':'PERIGO','socorro':'SOCORRO'})
         smach.StateMachine.add('CENTRO', Centralizado(),
                                 transitions={'alinhando': 'GIRANDO',
-                                'alinhado':'CENTRO','perigo':'PERIGO','socorro':'SOCORRO','bateu':'BATEU'})
+                                'alinhado':'CENTRO','perigo':'PERIGO','socorro':'SOCORRO'})
         smach.StateMachine.add('SOCORRO', Help(),
                                 transitions={'ufa': 'GIRANDO',
-                                'soldado':'SOCORRO','perigo':'PERIGO','bateu':'BATEU'})
-        smach.StateMachine.add('BATEU', Bateu(),
-                                transitions={'bateu': 'BATEU',
-                                'perigo':'PERIGO', 'passou':'GIRANDO'})
+                                'soldado':'SOCORRO','perigo':'PERIGO'})
 
 
     # Execute SMACH plan

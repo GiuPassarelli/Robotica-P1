@@ -15,14 +15,14 @@ from cv_bridge import CvBridge, CvBridgeError
 import smach
 import smach_ros
 
-MIN_MATCH_COUNT = 10
+MIN_MATCH_COUNT = 20
 detector = cv2.xfeatures2d.SIFT_create()
 
 FLANN_INDEX_KDITREE = 0
 flannParam = dict (algorithm=FLANN_INDEX_KDITREE, tree=5)
 flann = cv2.FlannBasedMatcher(flannParam,{})
 
-trainImg = cv2.imread("minion.jpg", 0)
+trainImg = cv2.imread("soldadinho.jpg", 0)
 
 #cv2.imshow('teste',trainImg)  
 
@@ -68,7 +68,7 @@ def identifica_frame(frame):
         approx = cv2.approxPolyDP(cnt,0.01*cv2.arcLength(cnt,True),True)
         if len(approx)==4:
             cv2.drawContours(bordas_color,[cnt],0,(0,0,255),-1)
-    cv2.imshow('img',bordas_color)        
+    #cv2.imshow('img',bordas_color)        
 
 
 
@@ -80,6 +80,7 @@ def identifica_frame(frame):
     for m,n in matches:
         if m.distance < 0.75*n.distance:
             goodMatch.append(m)
+    print(len(goodMatch))
     if len(goodMatch) > MIN_MATCH_COUNT:
         tp = []
         qp = []
@@ -98,9 +99,9 @@ def identifica_frame(frame):
         print "Not Enough match found- %d/%d" %(len(goodMatch),MIN_MATCH_COUNT)
         #media = [0,0] mudar para 200 e testar
         #centro = [0,0]
-    cv2.imshow('result', bordas_color)
+    #cv2.imshow('result', bordas_color)
 
 
-    
+    print (media)
 
     return media,centro, 0
